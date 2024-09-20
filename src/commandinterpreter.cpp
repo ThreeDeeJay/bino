@@ -21,7 +21,9 @@
 #include <QCommandLineParser>
 #include <QMediaDevices>
 #include <QGuiApplication>
-#include <QWindowCapture>
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
+# include <QWindowCapture>
+#endif
 
 #include "commandinterpreter.hpp"
 #include "modes.hpp"
@@ -203,8 +205,12 @@ void CommandInterpreter::processNextCommand()
             bool ok;
             QList<QAudioDevice> audioInputDevices;
             QList<QCameraDevice> videoInputDevices;
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
             QList<QScreen*> screenInputDevices;
+#endif
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
             QList<QCapturableWindow> windowInputDevices;
+#endif
             int audioInputDeviceIndex = -1;
             int videoInputDeviceIndex = -1;
             int screenInputDeviceIndex = -1;
@@ -233,6 +239,7 @@ void CommandInterpreter::processNextCommand()
                     ok = false;
                 }
             }
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
             if (parser.isSet("screen-input")) {
                 screenInputDevices = QGuiApplication::screens();
                 int vi = parser.value("screen-input").toInt(&ok);
@@ -243,6 +250,8 @@ void CommandInterpreter::processNextCommand()
                     ok = false;
                 }
             }
+#endif
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
             if (parser.isSet("window-input")) {
                 windowInputDevices = QWindowCapture::capturableWindows();
                 int vi = parser.value("window-input").toInt(&ok);
@@ -253,6 +262,7 @@ void CommandInterpreter::processNextCommand()
                     ok = false;
                 }
             }
+#endif
             if (ok) {
                 if (screenInputDeviceIndex < 0 && windowInputDeviceIndex < 0) {
                     Bino::instance()->startCaptureModeCamera(audioInputDeviceIndex >= -1,
@@ -263,17 +273,21 @@ void CommandInterpreter::processNextCommand()
                             ? videoInputDevices[videoInputDeviceIndex]
                             : QMediaDevices::defaultVideoInput());
                 } else if (screenInputDeviceIndex >= 0) {
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
                     Bino::instance()->startCaptureModeScreen(audioInputDeviceIndex >= -1,
                             audioInputDeviceIndex >= 0
                             ? audioInputDevices[audioInputDeviceIndex]
                             : QMediaDevices::defaultAudioInput(),
                             screenInputDevices[screenInputDeviceIndex]);
+#endif
                 } else {
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
                     Bino::instance()->startCaptureModeWindow(audioInputDeviceIndex >= -1,
                             audioInputDeviceIndex >= 0
                             ? audioInputDevices[audioInputDeviceIndex]
                             : QMediaDevices::defaultAudioInput(),
                             windowInputDevices[windowInputDeviceIndex]);
+#endif
                 }
             }
         }
