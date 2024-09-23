@@ -45,6 +45,9 @@
 #if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
 # include <QWindowCapture>
 #endif
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
+# include <QtProcessorDetection>
+#endif
 
 #ifdef WITH_QVR
 #  include <qvr/manager.hpp>
@@ -641,7 +644,17 @@ int main(int argc, char* argv[])
     format.setBlueBufferSize(10);
     format.setAlphaBufferSize(0);
     format.setStencilBufferSize(0);
-    if (parser.isSet("opengles"))
+    bool wantOpenGLES = parser.isSet("opengles");
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
+# if defined Q_PROCESSOR_ARM
+    wantOpenGLES = true;
+# endif
+#else
+# if defined(__arm__) || defined(__TARGET_ARCH_ARM) || defined(_M_ARM) || defined(_M_ARM64) || defined(__aarch64__) || defined(__ARM64__)
+    wantOpenGLES = true;
+# endif
+#endif
+    if (wantOpenGLES)
         format.setRenderableType(QSurfaceFormat::OpenGLES);
     initializeIsOpenGLES(format);
     if (IsOpenGLES) {
