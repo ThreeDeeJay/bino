@@ -45,7 +45,7 @@ jobs:
         windeployqt.exe "${{github.workspace}}/${{env.Artifacts}}/bino.exe"
 
     - name: Upload Installer Artifact to GitHub
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: "${{github.event.repository.name}}_r${{env.CommitCount}}@${{env.CommitHashShort}}"
         path: "${{github.workspace}}/${{env.Artifacts}}/"
