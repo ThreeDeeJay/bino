@@ -74,7 +74,7 @@ Gui::Gui(OutputMode outputMode, bool fullscreen) :
     setWindowIcon(QIcon(icon));
 
     QMenu* fileMenu = addBinoMenu(tr("&File"));
-    QAction* fileOpenAction = new QAction(tr("&Open File..."), this);
+    QAction* fileOpenAction = new QAction(tr("&Open File(s)..."), this);
     fileOpenAction->setShortcuts({ QKeySequence::Open });
     connect(fileOpenAction, SIGNAL(triggered()), this, SLOT(fileOpen()));
     addBinoAction(fileOpenAction, fileMenu);
@@ -131,6 +131,18 @@ Gui::Gui(OutputMode outputMode, bool fullscreen) :
     _playlistLoopActionGroup->addAction(playlistLoopAll)->setData(int(Loop_All));
     connect(playlistLoopAll, SIGNAL(triggered()), this, SLOT(playlistLoop()));
     addBinoAction(playlistLoopAll, playlistMenu);
+    playlistMenu->addSeparator();
+    _playlistWaitActionGroup = new QActionGroup(this);
+    QAction* playlistWaitOff = new QAction(waitModeToStringUI(Wait_Off), this);
+    playlistWaitOff->setCheckable(true);
+    _playlistWaitActionGroup->addAction(playlistWaitOff)->setData(int(Wait_Off));
+    connect(playlistWaitOff, SIGNAL(triggered()), this, SLOT(playlistWait()));
+    addBinoAction(playlistWaitOff, playlistMenu);
+    QAction* playlistWaitOn = new QAction(waitModeToStringUI(Wait_On), this);
+    playlistWaitOn->setCheckable(true);
+    _playlistWaitActionGroup->addAction(playlistWaitOn)->setData(int(Wait_On));
+    connect(playlistWaitOn, SIGNAL(triggered()), this, SLOT(playlistWait()));
+    addBinoAction(playlistWaitOn, playlistMenu);
 
     QMenu* threeDMenu = addBinoMenu(tr("&3D Modes"));
     _3dSurroundActionGroup = new QActionGroup(this);
@@ -421,7 +433,7 @@ Gui::Gui(OutputMode outputMode, bool fullscreen) :
 
     QMenu* viewMenu = addBinoMenu(tr("&View"));
     _viewToggleFullscreenAction = new QAction(tr("&Fullscreen"), this);
-    _viewToggleFullscreenAction->setShortcuts({ Qt::Key_F, QKeySequence::FullScreen });
+    _viewToggleFullscreenAction->setShortcuts({ Qt::Key_F11, Qt::Key_F, QKeySequence::FullScreen });
     _viewToggleFullscreenAction->setCheckable(true);
     connect(_viewToggleFullscreenAction, SIGNAL(triggered()), this, SLOT(viewToggleFullscreen()));
     addBinoAction(_viewToggleFullscreenAction, viewMenu);
@@ -465,19 +477,23 @@ Gui* Gui::instance()
 
 void Gui::fileOpen()
 {
-    QString name = QFileDialog::getOpenFileName(this);
-    if (!name.isEmpty()) {
-        QUrl url = QUrl::fromLocalFile(name);
-        MetaData metaData;
-        QString errMsg;
-        if (metaData.detectCached(url, &errMsg)) {
-            Bino::instance()->startPlaylistMode();
-            Playlist::instance()->clear();
-            Playlist::instance()->append(url);
-            Playlist::instance()->start();
-        } else {
-            QMessageBox::critical(this, tr("Error"), errMsg);
+    QStringList names = QFileDialog::getOpenFileNames(this);
+    if (!names.isEmpty()) {
+        bool playlistWasEmpty = Playlist::instance()->length() == 0;
+        Bino::instance()->startPlaylistMode();
+        for (int i = 0; i < names.size(); i++) {
+            QUrl url = QUrl::fromLocalFile(names[i]);
+            MetaData metaData;
+            QString errMsg;
+            if (metaData.detectCached(url, &errMsg)) {
+                Playlist::instance()->append(url);
+            } else {
+                QMessageBox::critical(this, tr("Error"), errMsg);
+            }
         }
+        Playlist::instance()->setWaitModeAuto();
+        if (playlistWasEmpty)
+            Playlist::instance()->next();
     }
 }
 
@@ -710,6 +726,13 @@ void Gui::playlistLoop()
         Playlist::instance()->setLoopMode(static_cast<LoopMode>(a->data().toInt()));
 }
 
+void Gui::playlistWait()
+{
+    QAction* a = _playlistWaitActionGroup->checkedAction();
+    if (a)
+        Playlist::instance()->setWaitMode(static_cast<WaitMode>(a->data().toInt()));
+}
+
 void Gui::threeDSurround()
 {
     QAction* a = _3dSurroundActionGroup->checkedAction();
@@ -906,6 +929,12 @@ void Gui::updateActions()
     for (int i = 0; i < _playlistLoopActionGroup->actions().size(); i++) {
         QAction* a = _playlistLoopActionGroup->actions()[i];
         a->setChecked(a->data().toInt() == int(loopMode));
+    }
+
+    WaitMode waitMode = Playlist::instance()->waitMode();
+    for (int i = 0; i < _playlistWaitActionGroup->actions().size(); i++) {
+        QAction* a = _playlistWaitActionGroup->actions()[i];
+        a->setChecked(a->data().toInt() == int(waitMode));
     }
 
     SurroundMode surroundMode = Bino::instance()->assumeSurroundMode();
