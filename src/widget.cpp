@@ -40,7 +40,7 @@
 
 static const QSize SizeBase(16, 9);
 
-Widget::Widget(OutputMode outputMode, QWidget* parent) :
+Widget::Widget(OutputMode outputMode, float surroundVerticalFOV, float surroundAspectRatio, QWidget* parent) :
     QOpenGLWidget(parent),
     _sizeHint(0.5f * SizeBase),
     _outputMode(outputMode),
@@ -52,6 +52,10 @@ Widget::Widget(OutputMode outputMode, QWidget* parent) :
     _surroundHorizontalAngleCurrent(0.0f),
     _surroundVerticalAngleCurrent(0.0f)
 {
+    setSurroundVerticalFieldOfView(surroundVerticalFOV);
+    _surroundVerticalFOVDefault = _surroundVerticalFOV; // to make sure clamping was applied
+    setSurroundAspectRatio(surroundAspectRatio);
+    _surroundAspectRatioDefault = _surroundAspectRatio; // to make sure clamping was applied
     setUpdateBehavior(QOpenGLWidget::PartialUpdate);
     setMouseTracking(true);
     setMinimumSize(8, 8);
@@ -77,6 +81,26 @@ OutputMode Widget::outputMode() const
 void Widget::setOutputMode(enum OutputMode mode)
 {
     _outputMode = mode;
+}
+
+void Widget::setSurroundVerticalFieldOfView(float vfov)
+{
+    _surroundVerticalFOV = qBound(5.0f, vfov, 115.0f);
+}
+
+void Widget::setSurroundAspectRatio(float ar)
+{
+    _surroundAspectRatio = qBound(1.0f, ar, 4.0f);
+}
+
+void Widget::resetSurroundView()
+{
+    _surroundVerticalFOV = _surroundVerticalFOVDefault;
+    _surroundAspectRatio = _surroundAspectRatioDefault;
+    _surroundHorizontalAngleBase = 0.0f;
+    _surroundVerticalAngleBase = 0.0f;
+    _surroundHorizontalAngleCurrent = 0.0f;
+    _surroundVerticalAngleCurrent = 0.0f;
 }
 
 QSize Widget::sizeHint() const
@@ -287,9 +311,9 @@ void Widget::paintGL()
         QMatrix4x4 orientationMatrix;
         QMatrix4x4 viewMatrix;
         if (Bino::instance()->assumeSurroundMode() != Surround_Off) {
-            float verticalVieldOfView = qDegreesToRadians(50.0f);
-            float aspectRatio = float(width) / height;
-            float top = qTan(verticalVieldOfView * 0.5f);
+            float verticalFieldOfView = qDegreesToRadians(_surroundVerticalFOV);
+            float aspectRatio = _surroundAspectRatio;
+            float top = qTan(verticalFieldOfView * 0.5f);
             float bottom = -top;
             float right = top * aspectRatio;
             float left = -right;
@@ -418,6 +442,16 @@ void Widget::mouseMoveEvent(QMouseEvent* e)
         _surroundVerticalAngleCurrent = yf * 90.0f;
         update();
     }
+}
+
+void Widget::wheelEvent(QWheelEvent* e)
+{
+    if (e->modifiers() & Qt::ShiftModifier) {
+        setSurroundAspectRatio(_surroundAspectRatio - (e->angleDelta().y() / 120.0f) * 0.05f * _surroundAspectRatio);
+    } else {
+        setSurroundVerticalFieldOfView(_surroundVerticalFOV - e->angleDelta().y() / 120.0f);
+    }
+    update();
 }
 
 void Widget::mediaChanged(PlaylistEntry)

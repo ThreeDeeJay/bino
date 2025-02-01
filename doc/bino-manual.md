@@ -164,6 +164,14 @@ Bino is a video player with a focus on 3D and Virtual Reality:
 
   Set surround mode (360, 180, off).
 
+- `--surround-vfov` *degrees*
+
+  Set surround vertical field of view (default 50, range 5-115).
+
+- `--surround-ar` *ratio*
+
+  Set surround aspect ratio (default 2, range 1.0-4.0).
+
 - `-S`, `--swap-eyes`
 
   Swap left/right eye.
@@ -306,6 +314,14 @@ The following commands are supported:
 - `set-output-mode` *mode*
 
   Set the given output mode. See the command line option `--output` for a list of modes.
+
+- `set-surround-vfov` *degrees*
+
+  Set surround vertical field of view (default 50, range 5-115).
+
+- `set-surround-ar` *ratio*
+
+  Set surround aspect ratio (default 2, range 1.0-4.0).
 
 - `set-swap-eyes` `on`|`off`
 
