@@ -1,7 +1,7 @@
 /*
  * This file is part of Bino, a 3D video player.
  *
- * Copyright (C) 2022, 2023, 2024
+ * Copyright (C) 2022, 2023, 2024, 2025
  * Martin Lambers <marlam@marlam.de>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -18,15 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-// for isatty():
-#if __has_include(<unistd.h>)
-# include <unistd.h>
-#elif __has_include(<io.h>)
-# include <io.h>
-#endif
-
 #include <cstdio>
-#include <string>
 
 #include <QApplication>
 #include <QTranslator>
@@ -42,12 +34,8 @@
 #include <QCamera>
 #include <QSurfaceFormat>
 #include <QOpenGLContext>
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
-# include <QWindowCapture>
-#endif
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
-# include <QtProcessorDetection>
-#endif
+#include <QWindowCapture>
+#include <QtProcessorDetection>
 
 #ifdef WITH_QVR
 #  include <qvr/manager.hpp>
@@ -218,9 +206,6 @@ int main(int argc, char* argv[])
     parser.addOption({ "surround-vfov",
             QCommandLineParser::tr("Set surround vertical field of view (default 50, range 5-115)."),
             "degrees" });
-    parser.addOption({ "surround-ar",
-            QCommandLineParser::tr("Set surround aspect ratio (default 2, range 1.0-4.0)."),
-            "ratio" });
     parser.addOption({ { "S", "swap-eyes" },
             QCommandLineParser::tr("Swap left/right eye.") });
     parser.addOption({ { "f", "fullscreen" },
@@ -276,15 +261,6 @@ int main(int argc, char* argv[])
             return 1;
         }
     }
-    float surroundAspectRatio = 2.0f;
-    if (parser.isSet("surround-ar")) {
-        bool ok;
-        surroundAspectRatio = parser.value("surround-ar").toFloat(&ok);
-        if (!ok || surroundAspectRatio < 1.0f || surroundAspectRatio > 4.0f) {
-            LOG_FATAL("%s", qPrintable(QCommandLineParser::tr("Invalid argument for option %1").arg("--surround-ar")));
-            return 1;
-        }
-    }
     InputMode inputMode = Input_Unknown;
     if (parser.isSet("input")) {
         bool ok;
@@ -309,12 +285,8 @@ int main(int argc, char* argv[])
     QList<QAudioDevice> audioOutputDevices;
     QList<QAudioDevice> audioInputDevices;
     QList<QCameraDevice> videoInputDevices;
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
     QList<QScreen*> screenInputDevices;
-#endif
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
     QList<QCapturableWindow> windowInputDevices;
-#endif
 
     // List devices
     bool deviceListRequested = false;
@@ -349,7 +321,6 @@ int main(int argc, char* argv[])
         deviceListRequested = true;
     }
     if (parser.isSet("list-screen-inputs")) {
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
         screenInputDevices = QGuiApplication::screens();
         if (screenInputDevices.size() == 0) {
             LOG_REQUESTED("%s", qPrintable(QCommandLineParser::tr("No screen inputs available.")));
@@ -357,13 +328,9 @@ int main(int argc, char* argv[])
             for (qsizetype i = 0; i < screenInputDevices.size(); i++)
                 LOG_REQUESTED("%s", qPrintable(QCommandLineParser::tr("Screen input %1: %2").arg(i).arg(screenInputDevices[i]->name())));
         }
-#else
-        LOG_REQUESTED("%s", qPrintable(QCommandLineParser::tr("No screen inputs available.")));
-#endif
         deviceListRequested = true;
     }
     if (parser.isSet("list-window-inputs")) {
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
         windowInputDevices = QWindowCapture::capturableWindows();
         if (windowInputDevices.size() == 0) {
             LOG_REQUESTED("%s", qPrintable(QCommandLineParser::tr("No window inputs available.")));
@@ -371,9 +338,6 @@ int main(int argc, char* argv[])
             for (qsizetype i = 0; i < windowInputDevices.size(); i++)
                 LOG_REQUESTED("%s", qPrintable(QCommandLineParser::tr("Window input %1: %2").arg(i).arg(windowInputDevices[i].description())));
         }
-#else
-        LOG_REQUESTED("%s", qPrintable(QCommandLineParser::tr("No window inputs available.")));
-#endif
         deviceListRequested = true;
     }
     if (deviceListRequested) {
@@ -426,7 +390,6 @@ int main(int argc, char* argv[])
             }
         }
         if (parser.isSet("screen-input")) {
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
             if (screenInputDevices.size() == 0)
                 screenInputDevices = QGuiApplication::screens();
             int vi = parser.value("screen-input").toInt(&ok);
@@ -436,13 +399,8 @@ int main(int argc, char* argv[])
                 LOG_FATAL("%s", qPrintable(QCommandLineParser::tr("Invalid argument for option %1").arg("--screen-input")));
                 return 1;
             }
-#else
-            LOG_FATAL("%s", qPrintable(QCommandLineParser::tr("Invalid argument for option %1").arg("--screen-input")));
-            return 1;
-#endif
         }
         if (parser.isSet("window-input")) {
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
             if (windowInputDevices.size() == 0)
                 windowInputDevices = QWindowCapture::capturableWindows();
             int vi = parser.value("window-input").toInt(&ok);
@@ -452,10 +410,6 @@ int main(int argc, char* argv[])
                 LOG_FATAL("%s", qPrintable(QCommandLineParser::tr("Invalid argument for option %1").arg("--window-input")));
                 return 1;
             }
-#else
-            LOG_FATAL("%s", qPrintable(QCommandLineParser::tr("Invalid argument for option %1").arg("--window-input")));
-            return 1;
-#endif
         }
     }
 
@@ -684,14 +638,8 @@ int main(int argc, char* argv[])
     format.setAlphaBufferSize(0);
     format.setStencilBufferSize(0);
     bool wantOpenGLES = parser.isSet("opengles");
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
-# if defined Q_PROCESSOR_ARM
+#if defined Q_PROCESSOR_ARM
     wantOpenGLES = true;
-# endif
-#else
-# if defined(__arm__) || defined(__TARGET_ARCH_ARM) || defined(_M_ARM) || defined(_M_ARM64) || defined(__aarch64__) || defined(__ARM64__)
-    wantOpenGLES = true;
-# endif
 #endif
     if (wantOpenGLES)
         format.setRenderableType(QSurfaceFormat::OpenGLES);
@@ -733,21 +681,17 @@ int main(int argc, char* argv[])
                         ? videoInputDevices[videoInputDeviceIndex]
                         : QMediaDevices::defaultVideoInput());
             } else if (screenInputDeviceIndex >= 0) {
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
                 bino.startCaptureModeScreen(audioInputDeviceIndex >= -1,
                         audioInputDeviceIndex >= 0
                         ? audioInputDevices[audioInputDeviceIndex]
                         : QMediaDevices::defaultAudioInput(),
                         screenInputDevices[screenInputDeviceIndex]);
-#endif
             } else {
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
                 bino.startCaptureModeWindow(audioInputDeviceIndex >= -1,
                         audioInputDeviceIndex >= 0
                         ? audioInputDevices[audioInputDeviceIndex]
                         : QMediaDevices::defaultAudioInput(),
                         windowInputDevices[windowInputDeviceIndex]);
-#endif
             }
         } else {
             bino.startPlaylistMode();
@@ -769,7 +713,7 @@ int main(int argc, char* argv[])
         return 1;
 #endif
     } else {
-        Gui gui(outputMode, surroundVerticalFOV, surroundAspectRatio, parser.isSet("fullscreen"));
+        Gui gui(outputMode, surroundVerticalFOV, parser.isSet("fullscreen"));
         gui.show();
         // wait for several seconds to process all events before starting
         // the playlist, because otherwise playing might be finished before

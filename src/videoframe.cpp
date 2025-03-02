@@ -1,7 +1,7 @@
 /*
  * This file is part of Bino, a 3D video player.
  *
- * Copyright (C) 2022, 2023, 2024
+ * Copyright (C) 2022, 2023, 2024, 2025
  * Martin Lambers <marlam@marlam.de>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,6 +30,33 @@ VideoFrame::VideoFrame()
 bool VideoFrame::isValid() const
 {
     return (qframe.isValid() && qframe.pixelFormat() != QVideoFrameFormat::Format_Invalid);
+}
+
+// from qtmultimedia/src/multimedia/shaders/qvideotexturehelper.cpp
+static float linearToPQ(float sig)
+{
+    const float m1 = 1305.0f / 8192.0f;
+    const float m2 = 2523.0f / 32.0f;
+    const float c1 = 107.0f / 128.0f;
+    const float c2 = 2413.0f / 128.0f;
+    const float c3 = 2392.0f / 128.0f;
+    const float SDR_LEVEL = 100.f;
+    sig *= SDR_LEVEL / 10000.0f;
+    float psig = powf(sig, m1);
+    float num = c1 + c2 * psig;
+    float den = 1.0f + c3 * psig;
+    return powf(num / den, m2);
+}
+
+// from qtmultimedia/src/multimedia/shaders/qvideotexturehelper.cpp
+static float linearToHLG(float sig)
+{
+    const float a = 0.17883277f;
+    const float b = 0.28466892f; // = 1 - 4a
+    const float c = 0.55991073f; // = 0.5 - a ln(4a)
+    if (sig < 1.0f / 12.0f)
+        return sqrtf(3.0f * sig);
+    return a * logf(12.0f * sig - b) + c;
 }
 
 void VideoFrame::update(InputMode im, SurroundMode sm, const QVideoFrame& frame, bool newSrc)
@@ -109,40 +136,60 @@ void VideoFrame::update(InputMode im, SurroundMode sm, const QVideoFrame& frame,
             }
             storage = Storage_Image;
             pixelFormat = QVideoFrameFormat::pixelFormatFromImageFormat(QImage::Format_RGB32);
-            yuvValueRangeSmall = false;
-            yuvSpace = YUV_AdobeRgb;
+            colorRangeSmall = false;
+            colorSpace = CS_AdobeRgb;
             image = qframe.toImage();
             image.convertTo(QImage::Format_RGB32);
         } else {
             storage = Storage_Mapped;
             pixelFormat = qframe.pixelFormat();
-            // TODO: update this for Qt6.4 (and require Qt6.4!) once
-            // that version is in Debian unstable
-            switch (qframe.surfaceFormat().yCbCrColorSpace()) {
-            case QVideoFrameFormat::YCbCr_Undefined:
-            case QVideoFrameFormat::YCbCr_BT601:
-                yuvValueRangeSmall = true;
-                yuvSpace = YUV_BT601;
+            // Heuristic used in qtmultimedia/src/multimedia/video/qvideotexturehelper.cpp:
+            colorSpace = (qframe.surfaceFormat().frameHeight() > 576 ? CS_BT709 : CS_BT601);
+            switch (qframe.surfaceFormat().colorSpace()) {
+            case QVideoFrameFormat::ColorSpace_Undefined:
+                // nothing to do: default was already guessed
                 break;
-            case QVideoFrameFormat::YCbCr_BT709:
-                yuvValueRangeSmall = true;
-                yuvSpace = YUV_BT709;
+            case QVideoFrameFormat::ColorSpace_BT601:
+                colorSpace = CS_BT601;
                 break;
-            case QVideoFrameFormat::YCbCr_xvYCC601:
-                yuvValueRangeSmall = false;
-                yuvSpace = YUV_BT601;
+            case QVideoFrameFormat::ColorSpace_BT709:
+                colorSpace = CS_BT709;
                 break;
-            case QVideoFrameFormat::YCbCr_xvYCC709:
-                yuvValueRangeSmall = false;
-                yuvSpace = YUV_BT709;
+            case QVideoFrameFormat::ColorSpace_AdobeRgb:
+                colorSpace = CS_AdobeRgb;
                 break;
-            case QVideoFrameFormat::YCbCr_JPEG:
-                yuvValueRangeSmall = false;
-                yuvSpace = YUV_AdobeRgb;
+            case QVideoFrameFormat::ColorSpace_BT2020:
+                colorSpace = CS_BT2020;
                 break;
-            case QVideoFrameFormat::YCbCr_BT2020:
-                yuvValueRangeSmall = true;
-                yuvSpace = YUV_AdobeRgb;
+            }
+            colorRangeSmall = true;
+            switch (qframe.surfaceFormat().colorRange()) {
+            case QVideoFrameFormat::ColorRange_Unknown:
+            case QVideoFrameFormat::ColorRange_Video:
+                // nothing to do: default value already set
+                break;
+            case QVideoFrameFormat::ColorRange_Full:
+                colorRangeSmall = false;
+                break;
+            }
+            colorTransfer = CT_NOOP; // color was already transferred by color space conversion
+            masteringWhite = 1.0f;
+            switch (qframe.surfaceFormat().colorTransfer()) {
+            case QVideoFrameFormat::ColorTransfer_Unknown:
+            case QVideoFrameFormat::ColorTransfer_BT709:
+            case QVideoFrameFormat::ColorTransfer_BT601:
+            case QVideoFrameFormat::ColorTransfer_Linear:
+            case QVideoFrameFormat::ColorTransfer_Gamma22:
+            case QVideoFrameFormat::ColorTransfer_Gamma28:
+                // nothing to do: default was already set
+                break;
+            case QVideoFrameFormat::ColorTransfer_ST2084:
+                colorTransfer = CT_ST2084;
+                masteringWhite = linearToPQ(qframe.surfaceFormat().maxLuminance() / 100.0f);
+                break;
+            case QVideoFrameFormat::ColorTransfer_STD_B67:
+                colorTransfer = CT_STD_B67;
+                masteringWhite = linearToHLG(qframe.surfaceFormat().maxLuminance() / 100.0f);
                 break;
             }
             qframe.map(QVideoFrame::ReadOnly);
@@ -193,8 +240,10 @@ QDataStream &operator<<(QDataStream& ds, const VideoFrame& f)
     case VideoFrame::Storage_Copied:
         ds << static_cast<int>(VideoFrame::Storage_Copied);
         ds << static_cast<int>(f.pixelFormat);
-        ds << f.yuvValueRangeSmall;
-        ds << static_cast<int>(f.yuvSpace);
+        ds << f.colorRangeSmall;
+        ds << static_cast<int>(f.colorSpace);
+        ds << static_cast<int>(f.colorTransfer);
+        ds << f.masteringWhite;
         ds << f.planeCount;
         for (int p = 0; p < f.planeCount; p++) {
             ds << f.bytesPerLine[p];
@@ -232,9 +281,12 @@ QDataStream &operator>>(QDataStream& ds, VideoFrame& f)
         f.image = QImage();
         ds >> tmp;
         f.pixelFormat = static_cast<QVideoFrameFormat::PixelFormat>(tmp);
-        ds >> f.yuvValueRangeSmall;
+        ds >> f.colorRangeSmall;
         ds >> tmp;
-        f.yuvSpace = static_cast<enum VideoFrame::YUVSpace>(tmp);
+        f.colorSpace = static_cast<enum VideoFrame::ColorSpace>(tmp);
+        ds >> tmp;
+        f.colorTransfer = static_cast<enum VideoFrame::ColorTransfer>(tmp);
+        ds >> f.masteringWhite;
         ds >> f.planeCount;
         for (int p = 0; p < 3; p++) {
             if (p < f.planeCount) {
@@ -252,8 +304,8 @@ QDataStream &operator>>(QDataStream& ds, VideoFrame& f)
         break;
     case VideoFrame::Storage_Image:
         f.pixelFormat = QVideoFrameFormat::pixelFormatFromImageFormat(QImage::Format_RGB32);
-        f.yuvValueRangeSmall = false;
-        f.yuvSpace = VideoFrame::YUV_AdobeRgb;
+        f.colorRangeSmall = false;
+        f.colorSpace = VideoFrame::CS_AdobeRgb;
         f.planeCount = 0;
         for (int p = 0; p < 3; p++) {
             f.bytesPerLine[p] = 0;

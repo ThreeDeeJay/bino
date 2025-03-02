@@ -1,7 +1,7 @@
 /*
  * This file is part of Bino, a 3D video player.
  *
- * Copyright (C) 2022, 2023, 2024
+ * Copyright (C) 2022, 2023, 2024, 2025
  * Martin Lambers <marlam@marlam.de>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,12 +39,8 @@ Bino::Bino(ScreenType screenType, const Screen& screen, bool swapEyes) :
     _player(nullptr),
     _audioInput(nullptr),
     _videoInput(nullptr),
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
     _screenInput(nullptr),
-#endif
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
     _windowInput(nullptr),
-#endif
     _captureSession(nullptr),
     _lastFrameInputMode(Input_Unknown),
     _lastFrameSurroundMode(Surround_Unknown),
@@ -65,12 +61,8 @@ Bino::~Bino()
     delete _player;
     delete _audioInput;
     delete _videoInput;
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
     delete _screenInput;
-#endif
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
     delete _windowInput;
-#endif
     delete _captureSession;
     binoSingleton = nullptr;
 }
@@ -160,7 +152,6 @@ void Bino::startCaptureModeCamera(
     emit stateChanged();
 }
 
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
 void Bino::startCaptureModeScreen(
         bool withAudioInput,
         const QAudioDevice& audioInputDevice,
@@ -173,9 +164,7 @@ void Bino::startCaptureModeScreen(
     _screenInput->setActive(true);
     emit stateChanged();
 }
-#endif
 
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
 void Bino::startCaptureModeWindow(
         bool withAudioInput,
         const QAudioDevice& audioInputDevice,
@@ -188,7 +177,6 @@ void Bino::startCaptureModeWindow(
     _windowInput->setActive(true);
     emit stateChanged();
 }
-#endif
 
 void Bino::stopCaptureMode()
 {
@@ -197,14 +185,10 @@ void Bino::stopCaptureMode()
         _captureSession = nullptr;
         delete _videoInput;
         _videoInput = nullptr;
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 5, 0))
         delete _screenInput;
         _screenInput = nullptr;
-#endif
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 6, 0))
         delete _windowInput;
         _windowInput = nullptr;
-#endif
         if (_audioInput) {
             delete _audioInput;
             _audioInput = nullptr;
@@ -252,7 +236,7 @@ void Bino::mediaChanged(PlaylistEntry entry)
                 }
             }
             if (audioTrack >= 0) {
-                _player->setActiveVideoTrack(entry.audioTrack);
+                _player->setActiveAudioTrack(entry.audioTrack);
             }
         }
         if (entry.subtitleTrack >= 0) {
@@ -271,7 +255,7 @@ void Bino::mediaChanged(PlaylistEntry entry)
             _player->setActiveSubtitleTrack(subtitleTrack);
         }
         _player->play();
-        _videoSink->newUrl(entry.url, entry.inputMode, entry.surroundMode);
+        _videoSink->newPlaylistEntry(entry, metaData);
     }
     emit stateChanged();
 }
@@ -767,21 +751,31 @@ bool Bino::initProcess()
     return true;
 }
 
-void Bino::rebuildColorPrgIfNecessary(int planeFormat, bool yuvValueRangeSmall, int yuvSpace)
+void Bino::rebuildColorPrgIfNecessary(int planeFormat, bool colorRangeSmall, int colorSpace, int colorTransfer)
 {
     if (_colorPrg.isLinked()
             && _colorPrgPlaneFormat == planeFormat
-            && _colorPrgYuvValueRangeSmall == yuvValueRangeSmall
-            && _colorPrgYuvSpace == yuvSpace)
+            && _colorPrgColorRangeSmall == colorRangeSmall
+            && _colorPrgColorSpace == colorSpace
+            && _colorPrgColorTransfer == colorTransfer) {
         return;
+    }
 
-    LOG_DEBUG("rebuilding color conversion program for plane format %d, value range %s, yuv space %s",
-            planeFormat, yuvValueRangeSmall ? "small" : "full", yuvSpace ? "true" : "false");
+    LOG_DEBUG("rebuilding color conversion program for plane format %d, value range %s, color space %s, color transfer %s",
+            planeFormat, colorRangeSmall ? "small" : "full",
+            colorSpace == VideoFrame::CS_BT601 ? "bt601"
+            : colorSpace == VideoFrame::CS_BT709 ? "bt709"
+            : colorSpace == VideoFrame::CS_AdobeRgb ? "rgb"
+            : "bt2020",
+            colorTransfer == VideoFrame::CT_NOOP ? "none"
+            : colorTransfer == VideoFrame::CT_ST2084 ? "st2084"
+            : "std_b67");
     QString colorVS = readFile(":src/shader-color.vert.glsl");
     QString colorFS = readFile(":src/shader-color.frag.glsl");
     colorFS.replace("$PLANE_FORMAT", QString::number(planeFormat));
-    colorFS.replace("$VALUE_RANGE_SMALL", yuvValueRangeSmall ? "true" : "false");
-    colorFS.replace("$YUV_SPACE", QString::number(yuvSpace));
+    colorFS.replace("$COLOR_RANGE_SMALL", colorRangeSmall ? "true" : "false");
+    colorFS.replace("$COLOR_SPACE", QString::number(colorSpace));
+    colorFS.replace("$COLOR_TRANSFER", QString::number(colorTransfer));
     if (IsOpenGLES) {
         colorVS.prepend("#version 300 es\n");
         colorFS.prepend("#version 300 es\n"
@@ -795,8 +789,9 @@ void Bino::rebuildColorPrgIfNecessary(int planeFormat, bool yuvValueRangeSmall, 
     _colorPrg.addShaderFromSourceCode(QOpenGLShader::Fragment, colorFS);
     _colorPrg.link();
     _colorPrgPlaneFormat = planeFormat;
-    _colorPrgYuvValueRangeSmall = yuvValueRangeSmall;
-    _colorPrgYuvSpace = yuvSpace;
+    _colorPrgColorRangeSmall = colorRangeSmall;
+    _colorPrgColorSpace = colorSpace;
+    _colorPrgColorTransfer = colorTransfer;
 }
 
 void Bino::rebuildViewPrgIfNecessary(SurroundMode surroundMode, bool nonLinearOutput)
@@ -1081,8 +1076,9 @@ void Bino::convertFrameToTexture(const VideoFrame& frame, unsigned int frameTex)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, frameTex, 0);
     glViewport(0, 0, w, h);
     glDisable(GL_DEPTH_TEST);
-    rebuildColorPrgIfNecessary(planeFormat, frame.yuvValueRangeSmall, frame.yuvSpace);
+    rebuildColorPrgIfNecessary(planeFormat, frame.colorRangeSmall, frame.colorSpace, frame.colorTransfer);
     glUseProgram(_colorPrg.programId());
+    _colorPrg.setUniformValue("masteringWhite", frame.masteringWhite);
     for (int p = 0; p < planeCount; p++) {
         _colorPrg.setUniformValue(qPrintable(QString("plane") + QString::number(p)), p);
         glActiveTexture(GL_TEXTURE0 + p);

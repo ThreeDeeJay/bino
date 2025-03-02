@@ -1,7 +1,7 @@
 ---
 title: Bino
-header: Version 2.2
-date: May 31, 2024
+header: Version 2.5
+date: Feburary 15, 2025
 section: 1
 ---
 
@@ -11,7 +11,7 @@ Bino is a video player with a focus on 3D and Virtual Reality:
 
 - Support for stereoscopic 3D videos in various formats
 
-- Support for 360° and 180° videos, with and without stereoscopic 3D
+- Support for 360° and 180° surround videos, with and without stereoscopic 3D
 
 - Support for Virtual Reality environments, including SteamVR,
   CAVEs, powerwalls, and other multi-display / multi-GPU / multi-host systems
@@ -168,10 +168,6 @@ Bino is a video player with a focus on 3D and Virtual Reality:
 
   Set surround vertical field of view (default 50, range 5-115).
 
-- `--surround-ar` *ratio*
-
-  Set surround aspect ratio (default 2, range 1.0-4.0).
-
 - `-S`, `--swap-eyes`
 
   Swap left/right eye.
@@ -319,10 +315,6 @@ The following commands are supported:
 
   Set surround vertical field of view (default 50, range 5-115).
 
-- `set-surround-ar` *ratio*
-
-  Set surround aspect ratio (default 2, range 1.0-4.0).
-
 - `set-swap-eyes` `on`|`off`
 
   Set left/right eye swap.
@@ -375,10 +367,10 @@ Bino supports all sorts of Virtual Reality environments via [QVR](https://marlam
 
 - When QVR is compiled with [VRPN](https://github.com/vrpn/vrpn),
   all sorts of tracking and interaction hardware for such systems are
-  supported.
+  additionally supported.
 
 - When QVR is compiled with [OpenVR](https://github.com/ValveSoftware/openvr),
-  SteamVR is supported and automatically detected (e.g. HTC Vive).
+  SteamVR is additionally supported and automatically detected (e.g. HTC Vive).
 
 To start Bino in VR mode, use the option `--vr`.
 Bino will then display a screen in the virtual world, and the video will be
