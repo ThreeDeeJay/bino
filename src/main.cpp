@@ -1,7 +1,7 @@
 /*
  * This file is part of Bino, a 3D video player.
  *
- * Copyright (C) 2022, 2023, 2024, 2025
+ * Copyright (C) 2022, 2023, 2024, 2025, 2026
  * Martin Lambers <marlam@marlam.de>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -38,6 +38,7 @@
 #include <QWindowCapture>
 #include <QtSystemDetection>
 #include <QtProcessorDetection>
+#include <QtVersion>
 
 #ifdef WITH_QVR
 #  include <qvr/manager.hpp>
@@ -126,6 +127,8 @@ int main(int argc, char* argv[])
             "file" });
     parser.addOption({ "read-commands",
             QCommandLineParser::tr("Read commands from a script file."), "script" });
+    parser.addOption({ "disable-stereo",
+            QCommandLineParser::tr("Disable OpenGL quad-buffered stereo support.") });
     parser.addOption({ "opengles",
             QCommandLineParser::tr("Use OpenGL ES instead of Desktop OpenGL.") });
     parser.addOption({ "vr",
@@ -136,6 +139,9 @@ int main(int argc, char* argv[])
             "or as a an aspect ratio followed by the name of an OBJ file that contains the screen geometry with texture coordinates "
             "(example: '16:9,myscreen.obj')."),
             "screen" });
+    parser.addOption({ "vr-show-devices",
+            QCommandLineParser::tr("Set show-devices mode (%1).").arg("off, on"),
+            "mode" });
     parser.addOption({ "capture",
             QCommandLineParser::tr("Capture audio/video input from microphone and camera/screen/window.") });
     parser.addOption({ "list-audio-outputs",
@@ -237,6 +243,10 @@ int main(int argc, char* argv[])
             return 1;
         }
     }
+    LOG_DEBUG("Bino version " BINO_VERSION);
+    LOG_DEBUG("Built against Qt version " QT_VERSION_STR);
+    LOG_DEBUG("Running with Qt version %s", qVersion());
+    LOG_DEBUG("Running on Qt platform %s", qPrintable(QGuiApplication::platformName()));
 
     // Check if VR mode is available if requested
 #ifndef WITH_QVR
@@ -571,9 +581,10 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    // Handle the VR Screen
+    // Handle the VR parameters
     Bino::ScreenType screenType = Bino::ScreenGeometry;
     Screen screen; // default screen for non-VR mode
+    bool vrShowDevices = true;
     if (parser.isSet("vr")) {
         float screenCenterHeight = 1.76f - 0.15f; // does not matter, never used
 #ifdef WITH_QVR
@@ -621,6 +632,16 @@ int main(int argc, char* argv[])
         } else {
             LOG_DEBUG("using default VR screen");
         }
+        if (parser.isSet("vr-show-devices")) {
+            if (parser.value("vr-show-devices") == "on") {
+                vrShowDevices = true;
+            } else if (parser.value("vr-show-devices") == "off") {
+                vrShowDevices = false;
+            } else {
+                LOG_FATAL("%s", qPrintable(QCommandLineParser::tr("Invalid argument for option %1").arg("--vr-show-devices")));
+                return 1;
+            }
+        }
     }
 
     // Initialize the command interpreter (but don't start it yet)
@@ -659,8 +680,9 @@ int main(int argc, char* argv[])
             format.setProfile(QSurfaceFormat::CoreProfile);
             format.setVersion(3, 3);
         }
-        if (guiMode) {
-            format.setStereo(true); // Try to get quad-buffered stereo; it's ok if this fails
+        if (guiMode && !parser.isSet("disable-stereo")) {
+            // Try to get quad-buffered stereo; it's ok if this fails
+            format.setOption(QSurfaceFormat::StereoBuffers);
         }
         QSurfaceFormat::setDefaultFormat(format);
     }
@@ -704,7 +726,7 @@ int main(int argc, char* argv[])
     // Start VR or GUI mode
     if (vrMode) {
 #ifdef WITH_QVR
-        BinoQVRApp qvrapp;
+        BinoQVRApp qvrapp(vrShowDevices);
         if (!manager.init(&qvrapp)) {
             LOG_FATAL("%s", qPrintable(QCommandLineParser::tr("Cannot initialize QVR manager")));
             return 1;
