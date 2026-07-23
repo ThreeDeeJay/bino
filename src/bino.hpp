@@ -1,7 +1,7 @@
 /*
  * This file is part of Bino, a 3D video player.
  *
- * Copyright (C) 2022, 2023, 2024, 2025
+ * Copyright (C) 2022, 2023, 2024, 2025, 2026
  * Martin Lambers <marlam@marlam.de>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -36,6 +36,9 @@
 #include "screen.hpp"
 #include "videosink.hpp"
 #include "playlist.hpp"
+#include "overlay-audio.hpp"
+#include "overlay-subtitle.hpp"
+#include "overlay-ui.hpp"
 
 
 class Bino : public QObject, QOpenGLExtraFunctions
@@ -56,15 +59,20 @@ private:
     QAudioOutput* _audioOutput;
     // for playing a play list:
     QMediaPlayer* _player;
+    bool _playerAvailable;
+    bool _playerFailure;
+    bool _playerIgnoreNextStop;
     // for capturing audio/video:
     QAudioInput* _audioInput;
     QCamera* _videoInput;
     QScreenCapture* _screenInput;
     QWindowCapture* _windowInput;
     QMediaCaptureSession* _captureSession;
-    // for rendering subtitles:
-    QImage _subtitleImg;
-    QString _subtitleImgString;
+    // for managing the overlay UI:
+    bool _overlayUILocked;
+    qint64 _overlayUILastTrigger;
+    QPointF _overlayUIPointerInView;
+    bool _overlayUIPointerShow;
     // for updating the GUI if necessary
     InputMode _lastFrameInputMode;
     SurroundMode _lastFrameSurroundMode;
@@ -82,7 +90,7 @@ private:
     unsigned int _planeTexs[3];
     unsigned int _frameTex;
     unsigned int _extFrameTex;
-    unsigned int _subtitleTex;
+    unsigned int _overlayTexs[3];
     unsigned int _screenVao, _positionBuf, _texcoordBuf, _indexBuf;
     QOpenGLShaderProgram _colorPrg;
     int _colorPrgPlaneFormat;
@@ -99,12 +107,20 @@ private:
     bool _frameIsNew;
     bool _frameWasSerialized;
     bool _swapEyes;
+    // for rendering the audio overlay:
+    OverlayAudio _overlayAudio;
+    // for rendering subtitles:
+    OverlaySubtitle _overlaySubtitle;
+    QString _overlaySubtitleString;
+    // for rendering the overlay UI:
+    OverlayUI _overlayUI;
+    bool _overlayUIShow;
 
     void startCaptureMode(bool withAudioInput, const QAudioDevice& audioInputDevice, InputMode inputMode);
     void rebuildColorPrgIfNecessary(int planeFormat, bool colorRangeSmall, int colorSpace, int colorTransfer);
     void rebuildViewPrgIfNecessary(SurroundMode surroundMode, bool nonLinearOutput);
-    bool drawSubtitleToImage(int w, int h, const QString& string);
     void convertFrameToTexture(const VideoFrame& frame, unsigned int frameTex);
+    void overlayToTexture(const QImage& img, unsigned int text);
 
 public:
     Bino(ScreenType screenType, const Screen& screen, bool swapEyes);
@@ -178,12 +194,14 @@ public:
     void serializeDynamicData(QDataStream& ds);
     void deserializeDynamicData(QDataStream& ds);
     bool wantExit() const;
+    const Screen& screen() const;
 
     /* Functions shared by GUI and VR mode */
     bool initProcess();
+    void updateMainProcess();
     void preRenderProcess(
-            int screenWidth = 0,
-            int screenHeight = 0,
+            int screenWidth,
+            int screenHeight,
             int* viewCount = nullptr,
             int* viewWidth = nullptr,
             int* viewHeight = nullptr,
@@ -197,6 +215,9 @@ public:
             const QMatrix4x4& viewMatrix,
             int view, // 0 = left, 1 = right
             int texWidth, int texHeight, unsigned int texture);
+    bool overlayUIPointerPress(const QPointF& pointerInView, bool lockUIEvenIfPointerNotOnBox = false);
+    void overlayUIPointerRelease(const QPointF& pointerInView);
+    void overlayUIPointerMove(const QPointF& pointerInView, bool showPointerInOverlayUI = false);
     void keyPressEvent(QKeyEvent* event);
 
 public slots:

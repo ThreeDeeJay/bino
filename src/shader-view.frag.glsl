@@ -1,7 +1,7 @@
 /*
  * This file is part of Bino, a 3D video player.
  *
- * Copyright (C) 2022
+ * Copyright (C) 2022, 2023, 2024, 2025, 2026
  * Martin Lambers <marlam@marlam.de>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -19,7 +19,12 @@
  */
 
 uniform sampler2D frameTex;
-uniform sampler2D subtitleTex;
+uniform sampler2D overlayTex0; // audio
+uniform sampler2D overlayTex1; // subtitle
+uniform sampler2D overlayTex2; // ui
+uniform bool showOverlayAudio;
+uniform bool showOverlaySubtitle;
+uniform bool showOverlayUI;
 uniform float relative_width;
 uniform float relative_height;
 uniform float view_offset_x;
@@ -49,25 +54,45 @@ vec3 rgb_to_nonlinear(vec3 rgb)
 
 void main(void)
 {
-    vec3 rgb;
+    vec3 rgb = vec3(0.0, 0.0, 0.0);
+    float overlay_y = 1.0 - vtexcoord.y;
+    float overlay_x = vtexcoord.x;
     if (surroundDegrees > 0) {
+        overlay_x = 1.0 - overlay_x;
         vec3 dir = normalize(vdirection);
         float theta = asin(clamp(-dir.y, -1.0, 1.0));
         float phi = atan(dir.x, -dir.z);
-	float tmp = (surroundDegrees == 360 ? 2.0f * pi : pi);
+	float tmp = (surroundDegrees == 360 ? 2.0 * pi : pi);
         float u = phi / tmp + 0.5;
         float v = theta / pi + 0.5;
         float vtx = view_offset_x + view_factor_x * u;
         float vty = view_offset_y + view_factor_y * v;
         rgb = texture(frameTex, vec2(vtx, vty)).rgb;
     } else {
-        float vtx = view_offset_x + view_factor_x * vtexcoord.x;
-        float vty = view_offset_y + view_factor_y * vtexcoord.y;
-        float tx = (      vtx - 0.5 * (1.0 - relative_width )) / relative_width;
-        float ty = (1.0 - vty - 0.5 * (1.0 - relative_height)) / relative_height;
-        rgb = texture(frameTex, vec2(tx, ty)).rgb;
-        vec4 sub = texture(subtitleTex, vec2(vtexcoord.x, 1.0 - vtexcoord.y)).rgba;
-        rgb = mix(rgb, sub.rgb, sub.a);
+        float vtx = (      vtexcoord.x - 0.5) / relative_width  + 0.5;
+        float vty = (1.0 - vtexcoord.y - 0.5) / relative_height + 0.5;
+        if (vtx >= 0.0 && vtx <= 1.0 && vty >= 0.0 && vty <= 1.0) {
+            float tx = view_offset_x + view_factor_x * vtx;
+            float ty = view_offset_y + view_factor_y * vty;
+            rgb = texture(frameTex, vec2(tx, ty)).rgb;
+        }
+    }
+    // Only show overlays for the cube side that is directly in front
+    // of the viewer. In our cube VAO, this cube side is rendered via
+    // triangles 2 and 3.
+    if (surroundDegrees == 0 || gl_PrimitiveID == 2 || gl_PrimitiveID == 3) {
+        if (showOverlayAudio) {
+            vec4 ovl0 = texture(overlayTex0, vec2(overlay_x, overlay_y)).rgba;
+            rgb = mix(rgb, ovl0.rgb, ovl0.a);
+        }
+        if (showOverlaySubtitle) {
+            vec4 ovl1 = texture(overlayTex1, vec2(overlay_x, overlay_y)).rgba;
+            rgb = mix(rgb, ovl1.rgb, ovl1.a);
+        }
+        if (showOverlayUI) {
+            vec4 ovl2 = texture(overlayTex2, vec2(overlay_x, overlay_y)).rgba;
+            rgb = mix(rgb, ovl2.rgb, ovl2.a);
+        }
     }
     if (nonlinear_output) {
         rgb = rgb_to_nonlinear(rgb);
