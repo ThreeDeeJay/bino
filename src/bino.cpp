@@ -46,7 +46,7 @@ Bino::Bino(ScreenType screenType, const Screen& screen, bool swapEyes) :
     _lastFrameSurroundMode(Surround_Unknown),
     _screenType(screenType),
     _screen(screen),
-    _frameIsNew(false),
+    _frameIsNew(true),
     _frameWasSerialized(true),
     _swapEyes(swapEyes),
     _overlayUIShow(false)
@@ -84,11 +84,20 @@ void Bino::initializeOutput(const QAudioDevice& audioOutputDevice)
 
 void Bino::startPlaylistMode()
 {
-    if (playlistMode()) {
-        return;
-    }
-    if (captureMode()) {
+    if (captureMode())
         stopCaptureMode();
+
+    _frame.fallback = (Playlist::instance()->length() == 0
+            ? VideoFrame::Fallback_Logo : VideoFrame::Fallback_Minimal);
+    _frame.forceInvalidate();
+    _frameIsNew = true;
+
+    if (playlistMode()) {
+        _player->setVideoOutput(_videoSink);
+        _player->setAudioOutput(_audioOutput);
+        Playlist::instance()->stop();
+        Playlist::instance()->start();
+        return;
     }
 
     connect(Playlist::instance(), SIGNAL(mediaChanged(PlaylistEntry)), this, SLOT(mediaChanged(PlaylistEntry)));
@@ -121,15 +130,9 @@ void Bino::startPlaylistMode()
                 }
             }
             });
-
-    emit stateChanged();
-}
-
-void Bino::stopPlaylistMode()
-{
-    if (_player) {
-        delete _player;
-        _player = nullptr;
+    if (Playlist::instance()->length() > 0) {
+        Playlist::instance()->start();
+    } else {
         emit stateChanged();
     }
 }
@@ -137,9 +140,13 @@ void Bino::stopPlaylistMode()
 void Bino::startCaptureMode(bool withAudioInput, const QAudioDevice& audioInputDevice, InputMode inputMode)
 {
     if (playlistMode())
-        stopPlaylistMode();
+        mediaChanged(PlaylistEntry());
     if (captureMode())
         stopCaptureMode();
+
+    _frame.fallback = VideoFrame::Fallback_Minimal;
+    _frame.forceInvalidate();
+    _frameIsNew = true;
 
     _captureSession = new QMediaCaptureSession;
     _captureSession->setAudioOutput(_audioOutput);
@@ -215,7 +222,7 @@ void Bino::stopCaptureMode()
 
 bool Bino::playlistMode() const
 {
-    return _player;
+    return _player && !_captureSession;
 }
 
 bool Bino::captureMode() const
@@ -223,15 +230,36 @@ bool Bino::captureMode() const
     return _captureSession;
 }
 
+const QAudioInput* Bino::captureModeAudioInput() const
+{
+    return _audioInput;
+}
+
+const QCamera* Bino::captureModeVideoInput() const
+{
+    return _videoInput;
+}
+
+const QScreenCapture* Bino::captureModeScreenInput() const
+{
+    return _screenInput;
+}
+
+const QWindowCapture* Bino::captureModeWindowInput() const
+{
+    return _windowInput;
+}
+
 void Bino::mediaChanged(PlaylistEntry entry)
 {
     if (!playlistMode())
         return;
     _playerIgnoreNextStop = true;
-    _player->stop();
+    _player->setSource(QUrl());
     while (_player->playbackState() != QMediaPlayer::StoppedState) {
         QGuiApplication::processEvents();
     }
+    _playerIgnoreNextStop = false;
     if (!entry.noMedia()) {
         // Get meta data
         MetaData metaData;
@@ -241,12 +269,13 @@ void Bino::mediaChanged(PlaylistEntry entry)
         // Set new source
         _playerAvailable = false;
         _playerFailure = false;
-        _playerIgnoreNextStop = false;
         _player->setSource(digestibleUrl);
         do {
             QGuiApplication::processEvents();
         }
         while (!_playerFailure && !_playerAvailable);
+        if (_playerFailure)
+            return;
         if (metaData.videoTracks.isEmpty()) {
             _overlayAudio.updateParameters(metaData);
         } else if (entry.videoTrack >= 0) {
@@ -282,8 +311,8 @@ void Bino::mediaChanged(PlaylistEntry entry)
             }
             _player->setActiveSubtitleTrack(subtitleTrack);
         }
-        _player->play();
         _videoSink->newPlaylistEntry(entry, metaData);
+        _player->play();
     }
     emit stateChanged();
 }
@@ -316,7 +345,7 @@ void Bino::togglePause()
     if (_player->playbackState() == QMediaPlayer::PlayingState) {
         _player->pause();
         emit stateChanged();
-    } else if (_player->playbackState() == QMediaPlayer::PausedState) {
+    } else {
         _player->play();
         emit stateChanged();
     }
@@ -371,7 +400,7 @@ void Bino::stop()
 {
     if (!playlistMode())
         return;
-    if (_player->playbackState() == QMediaPlayer::StoppedState) {
+    if (_player->playbackState() != QMediaPlayer::StoppedState) {
         _player->stop();
         emit stateChanged();
     }
@@ -641,30 +670,30 @@ bool Bino::initProcess()
 
     // Cube geometry
     const float cubePositions[] = {
-        -10.0f, -10.0f, +10.0f,
-        +10.0f, -10.0f, +10.0f,
-        -10.0f, +10.0f, +10.0f,
-        +10.0f, +10.0f, +10.0f,
-        +10.0f, -10.0f, -10.0f,
-        -10.0f, -10.0f, -10.0f,
-        +10.0f, +10.0f, -10.0f,
-        -10.0f, +10.0f, -10.0f,
-        -10.0f, -10.0f, -10.0f,
-        -10.0f, -10.0f, +10.0f,
-        -10.0f, +10.0f, -10.0f,
-        -10.0f, +10.0f, +10.0f,
-        +10.0f, -10.0f, +10.0f,
-        +10.0f, -10.0f, -10.0f,
-        +10.0f, +10.0f, +10.0f,
-        +10.0f, +10.0f, -10.0f,
-        -10.0f, +10.0f, -10.0f,
-        -10.0f, +10.0f, +10.0f,
-        +10.0f, +10.0f, -10.0f,
-        +10.0f, +10.0f, +10.0f,
-        +10.0f, -10.0f, -10.0f,
-        +10.0f, -10.0f, +10.0f,
-        -10.0f, -10.0f, -10.0f,
-        -10.0f, -10.0f, +10.0f
+        -surroundCubeScale, -surroundCubeScale, +surroundCubeScale,
+        +surroundCubeScale, -surroundCubeScale, +surroundCubeScale,
+        -surroundCubeScale, +surroundCubeScale, +surroundCubeScale,
+        +surroundCubeScale, +surroundCubeScale, +surroundCubeScale,
+        +surroundCubeScale, -surroundCubeScale, -surroundCubeScale,
+        -surroundCubeScale, -surroundCubeScale, -surroundCubeScale,
+        +surroundCubeScale, +surroundCubeScale, -surroundCubeScale,
+        -surroundCubeScale, +surroundCubeScale, -surroundCubeScale,
+        -surroundCubeScale, -surroundCubeScale, -surroundCubeScale,
+        -surroundCubeScale, -surroundCubeScale, +surroundCubeScale,
+        -surroundCubeScale, +surroundCubeScale, -surroundCubeScale,
+        -surroundCubeScale, +surroundCubeScale, +surroundCubeScale,
+        +surroundCubeScale, -surroundCubeScale, +surroundCubeScale,
+        +surroundCubeScale, -surroundCubeScale, -surroundCubeScale,
+        +surroundCubeScale, +surroundCubeScale, +surroundCubeScale,
+        +surroundCubeScale, +surroundCubeScale, -surroundCubeScale,
+        -surroundCubeScale, +surroundCubeScale, -surroundCubeScale,
+        -surroundCubeScale, +surroundCubeScale, +surroundCubeScale,
+        +surroundCubeScale, +surroundCubeScale, -surroundCubeScale,
+        +surroundCubeScale, +surroundCubeScale, +surroundCubeScale,
+        +surroundCubeScale, -surroundCubeScale, -surroundCubeScale,
+        +surroundCubeScale, -surroundCubeScale, +surroundCubeScale,
+        -surroundCubeScale, -surroundCubeScale, -surroundCubeScale,
+        -surroundCubeScale, -surroundCubeScale, +surroundCubeScale
     };
     const float cubeTexCoords[] = {
         0.0f, 0.0f,
@@ -692,6 +721,32 @@ bool Bino::initProcess()
         0.0f, 1.0f,
         1.0f, 1.0f
     };
+    const float cubeOverlayOpacities[] = {
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        1.0f,
+        1.0f,
+        1.0f,
+        1.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f
+    };
     static const unsigned short cubeIndices[] = {
         0, 1, 2, 1, 3, 2,
         4, 5, 6, 5, 7, 6,
@@ -714,6 +769,12 @@ bool Bino::initProcess()
     glBufferData(GL_ARRAY_BUFFER, sizeof(cubeTexCoords), cubeTexCoords, GL_STATIC_DRAW);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(1);
+    GLuint cubeOverlayOpacityBuf;
+    glGenBuffers(1, &cubeOverlayOpacityBuf);
+    glBindBuffer(GL_ARRAY_BUFFER, cubeOverlayOpacityBuf);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeOverlayOpacities), cubeOverlayOpacities, GL_STATIC_DRAW);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(2);
     GLuint cubeIndexBuf;
     glGenBuffers(1, &cubeIndexBuf);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cubeIndexBuf);
@@ -804,10 +865,11 @@ void Bino::updateMainProcess()
     if (_overlayUIShow) {
         _overlayUI.updateParameters(
                 (_frame.surroundMode != Surround_Off),
+                (_frame.inputMode != Input_Unknown && _frame.inputMode != Input_Mono),
                 _player->position(),
                 _player->duration(),
                 _player->isSeekable(),
-                _player->playbackState() == QMediaPlayer::PausedState,
+                _player->playbackState() == QMediaPlayer::PlayingState,
                 _overlayUIPointerInView,
                 _overlayUIPointerShow);
     }
@@ -1105,8 +1167,6 @@ void Bino::overlayToTexture(const QImage& img, unsigned int tex)
 void Bino::preRenderProcess(int screenWidth, int screenHeight,
         int* viewCountPtr, int* viewWidthPtr, int* viewHeightPtr, float* frameDisplayAspectRatioPtr, bool* surroundPtr)
 {
-    Q_ASSERT(_frame.inputMode != Input_Unknown);
-
     int viewCount = 2;
     int viewWidth = _frame.width;
     int viewHeight = _frame.height;
@@ -1126,7 +1186,7 @@ void Bino::preRenderProcess(int screenWidth, int screenHeight,
         break;
     }
     switch (_frame.inputMode) {
-    case Input_Unknown: // cannot happen, update() sets a known mode
+    case Input_Unknown:
     case Input_Mono:
         viewCount = 1;
         break;
@@ -1380,19 +1440,17 @@ void Bino::render(
     _viewPrg.setUniformValue("relative_width", relWidth);
     _viewPrg.setUniformValue("relative_height", relHeight);
     // Render scene
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, frameTex);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, _overlayTexs[0]);
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, _overlayTexs[1]);
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, _overlayTexs[2]);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, frameTex);
     if (_frame.surroundMode != Surround_Off) {
-        // Set up filtering to work correctly at the horizontal wraparound:
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        if (_frame.surroundMode == Surround_360)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        // Set up filtering to work correctly at the wraparounds:
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         // Render
         glBindVertexArray(_cubeVao);
@@ -1400,7 +1458,6 @@ void Bino::render(
         // Reset filtering parameters to their defaults
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     } else {
         glBindVertexArray(_screenVao);
         if (_screenType == ScreenUnited || _screenType == ScreenIntersected) {
@@ -1418,6 +1475,7 @@ void Bino::render(
                     _screen.indices.length() * sizeof(unsigned int),
                     _screen.indices.constData(), GL_STATIC_DRAW);
         }
+        glVertexAttrib1f(2, 1.0f); // overlay opacity is 1 everywhere on the screen
         glDrawElements(GL_TRIANGLES, _screen.indices.size(), GL_UNSIGNED_INT, 0);
     }
 }

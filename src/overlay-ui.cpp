@@ -27,10 +27,11 @@
 
 OverlayUI::OverlayUI() :
     _lastSurround(false),
+    _lastStereo3D(false),
     _lastPosition(-1),
     _lastDuration(-1),
     _lastSeekable(false),
-    _lastPaused(false),
+    _lastPlaying(false),
     _lastPointer(-1.0f, -1.0f),
     _lastShowPointer(false),
     _boxIsActive { false, false, false, false, false, false, false, false, false, false }
@@ -47,8 +48,8 @@ void OverlayUI::computeBoxes()
     float xFactor = 1.0f;
     float yOffset = 0.0f;
     if (_currentSurround) {
-        xOffset = 0.15f * image().width();
-        xFactor = 0.7f;
+        xOffset = 0.25f * image().width();
+        xFactor = 0.5f;
         yOffset = -0.3f * image().height();
     }
     _buttonSize = image().width() / 18.0f * xFactor;
@@ -82,6 +83,16 @@ void OverlayUI::computeBoxes()
     float barH = 0.5f * _buttonSize;
     _boxes[9] = QRectF(barX, barY, barW, barH);
     _boxIsActive[9] = isReallySeekable;
+
+    // background
+    _boxes[10] = QRectF(xOffset, image().height() - 3.0f * _buttonSize + yOffset, image().width() - 2.0f * xOffset, 3.0f * _buttonSize);
+    _boxIsActive[10] = false;
+    for (int i = 0; i < 10; i++) {
+        if (_boxIsActive[i]) {
+            _boxIsActive[10] = _currentSurround && _currentStereo3D;
+            break;
+        }
+    }
 }
 
 QPointF OverlayUI::pointerToImage(const QPointF& pointer)
@@ -111,15 +122,16 @@ float OverlayUI::pointerToSeekPos(const QPointF& pointer)
     return seekPos;
 }
 
-void OverlayUI::updateParameters(bool surround,
+void OverlayUI::updateParameters(bool surround, bool stereo3D,
         qint64 position, qint64 duration, bool seekable,
-        bool paused, const QPointF& pointer, bool showPointer)
+        bool playing, const QPointF& pointer, bool showPointer)
 {
     _currentSurround = surround;
+    _currentStereo3D = stereo3D;
     _currentPosition = position;
     _currentDuration = duration;
     _currentSeekable = seekable;
-    _currentPaused = paused;
+    _currentPlaying = playing;
     _currentPointer = pointer;
     _currentShowPointer = showPointer;
 }
@@ -132,10 +144,11 @@ bool OverlayUI::redraw(int w, int h)
     }
     bool redraw = resize(w, h);
     if (_currentSurround != _lastSurround
+            || _currentStereo3D != _lastStereo3D
             || _currentPosition != _lastPosition
             || _currentDuration != _lastDuration
             || _currentSeekable != _lastSeekable
-            || _currentPaused != _lastPaused
+            || _currentPlaying != _lastPlaying
             || _currentPointer != _lastPointer
             || _currentShowPointer != _lastShowPointer) {
         redraw = true;
@@ -158,6 +171,11 @@ bool OverlayUI::redraw(int w, int h)
     QPen highlightPen(Qt::red);
     highlightPen.setWidthF(_penWidth);
 
+    // background
+    if (_boxIsActive[10]) {
+        painter()->fillRect(_boxes[10], QColor(51, 51, 51));
+    }
+
     // 9 buttons
     for (int i = 0; i < 9; i++) {
         if (_boxIsActive[i]) {
@@ -169,7 +187,7 @@ bool OverlayUI::redraw(int w, int h)
                 iconFactor = 0.8f;
             } else if (i == 4) {
                 iconName += "playback-";
-                iconName += _currentPaused ? "start" : "pause";
+                iconName += _currentPlaying ? "pause" : "start";
             } else {
                 iconName += "seek-";
                 iconName += i < 4 ? "backward" : "forward";
@@ -213,10 +231,11 @@ bool OverlayUI::redraw(int w, int h)
     }
 
     _lastSurround = _currentSurround;
+    _lastStereo3D = _currentStereo3D;
     _lastPosition = _currentPosition;
     _lastDuration = _currentDuration;
     _lastSeekable = _currentSeekable;
-    _lastPaused = _currentPaused;
+    _lastPlaying = _currentPlaying;
     _lastPointer = _currentPointer;
     _lastShowPointer = _currentShowPointer;
     return true;
@@ -255,10 +274,11 @@ void OverlayUI::pointerRelease(const QPointF& pointer)
 QDataStream &operator<<(QDataStream& ds, const OverlayUI& o)
 {
     ds << o._currentSurround;
+    ds << o._currentStereo3D;
     ds << o._currentPosition;
     ds << o._currentDuration;
     ds << o._currentSeekable;
-    ds << o._currentPaused;
+    ds << o._currentPlaying;
     ds << o._currentPointer;
     ds << o._currentShowPointer;
     return ds;
@@ -267,10 +287,11 @@ QDataStream &operator<<(QDataStream& ds, const OverlayUI& o)
 QDataStream &operator>>(QDataStream& ds, OverlayUI& o)
 {
     ds >> o._currentSurround;
+    ds >> o._currentStereo3D;
     ds >> o._currentPosition;
     ds >> o._currentDuration;
     ds >> o._currentSeekable;
-    ds >> o._currentPaused;
+    ds >> o._currentPlaying;
     ds >> o._currentPointer;
     ds >> o._currentShowPointer;
     return ds;

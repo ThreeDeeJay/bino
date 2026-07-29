@@ -33,9 +33,13 @@
 #include <QMediaDevices>
 #include <QRadioButton>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QActionGroup>
 #include <QMimeData>
 #include <QWindowCapture>
+#include <QProcess>
+#include <QProgressDialog>
+#include <QLocalSocket>
 
 #include "gui.hpp"
 #include "playlist.hpp"
@@ -448,6 +452,11 @@ Gui::Gui(OutputMode outputMode, float surroundVerticalFOV, bool fullscreen) :
     connect(_viewResetSurroundAction, SIGNAL(triggered()), this, SLOT(viewResetSurround()));
     addBinoAction(_viewResetSurroundAction, viewMenu);
 
+    QMenu* vrMenu = addBinoMenu(tr("VR"));
+    QAction* vrLaunchAction = new QAction(tr("&Launch VR..."), this);
+    connect(vrLaunchAction, SIGNAL(triggered()), this, SLOT(vrLaunch()));
+    addBinoAction(vrLaunchAction, vrMenu);
+
     QMenu* helpMenu = addBinoMenu(tr("&Help"));
     QAction* helpAboutAction = new QAction(tr("&About..."), this);
     connect(helpAboutAction, SIGNAL(triggered()), this, SLOT(helpAbout()));
@@ -559,7 +568,6 @@ void Gui::fileOpenURL()
 void Gui::fileOpenCamera()
 {
     QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
-    QList<QAudioDevice> audioOutputDevices = QMediaDevices::audioOutputs();
     QList<QAudioDevice> audioInputDevices = QMediaDevices::audioInputs();
     QList<QCameraDevice> videoInputDevices = QMediaDevices::videoInputs();
     QList<QScreen*> screenInputDevices = QGuiApplication::screens();
@@ -862,6 +870,211 @@ void Gui::viewResetSurround()
 {
     _widget->resetSurroundView();
     _widget->update();
+}
+
+void Gui::vrLaunch()
+{
+    QSettings settings;
+    QString configFileName = settings.value("VR/Config").toString();
+
+    QDialog *dialog = new QDialog(this);
+    dialog->setWindowTitle(tr("Launch VR"));
+
+    QRadioButton *configAutoBtn = new QRadioButton(tr("Automatic configuration"));
+    QRadioButton *configCustomBtn = new QRadioButton(tr("Custom configuration:"));
+    QLabel *configCustomLbl = new QLabel(QFileInfo(configFileName).fileName());
+    configCustomLbl->setFrameShape(QFrame::Box);
+    QPushButton *setConfigBtn = new QPushButton(tr("Set"));
+    connect(setConfigBtn, &QPushButton::clicked, this,
+            [this, &settings, &configFileName, &configCustomLbl]() {
+            configFileName = QFileDialog::getOpenFileName(this, QString(),
+                    settings.value("Directory").toString(),
+                    this->tr("QVR configuration (*.qvr)"));
+            if (!configFileName.isEmpty()) {
+                settings.setValue("Directory", QFileInfo(configFileName).absolutePath());
+                configCustomLbl->setText(QFileInfo(configFileName).fileName());
+            }
+            });
+    QCheckBox *showControllersBox = new QCheckBox(tr("Show controllers"));
+
+    configAutoBtn->setChecked(settings.value("VR/AutoConfig").toBool());
+    configCustomBtn->setChecked(!configAutoBtn->isChecked());
+    showControllersBox->setChecked(settings.value("VR/ShowControllers").toBool());
+
+    QPushButton *cancelBtn = new QPushButton(tr("Cancel"));
+    QPushButton *okBtn = new QPushButton(tr("OK"));
+    okBtn->setDefault(true);
+    connect(cancelBtn, SIGNAL(clicked()), dialog, SLOT(reject()));
+    connect(okBtn, SIGNAL(clicked()), dialog, SLOT(accept()));
+
+    int labelIndent = setConfigBtn->style()->pixelMetric(QStyle::PM_ExclusiveIndicatorWidth)
+        + setConfigBtn->style()->pixelMetric(QStyle::PM_CheckBoxLabelSpacing);
+    QVBoxLayout* labelLayout = new QVBoxLayout();
+    labelLayout->setContentsMargins(labelIndent, 0, 0, 0);
+    labelLayout->addWidget(configCustomLbl);
+
+    QGridLayout *layout = new QGridLayout();
+    layout->addWidget(configAutoBtn, 0, 0, 1, 4);
+    layout->addWidget(configCustomBtn, 1, 0, 1, 4);
+    layout->addLayout(labelLayout, 2, 0, 1, 3);
+    layout->addWidget(setConfigBtn, 2, 3);
+    layout->addWidget(showControllersBox, 3, 0, 1, 4);
+    layout->addWidget(cancelBtn, 4, 2);
+    layout->addWidget(okBtn, 4, 3);
+    layout->setColumnStretch(1, 1);
+    dialog->setLayout(layout);
+    dialog->exec();
+
+    if (dialog->result() == QDialog::Accepted) {
+        bool haveVRMode = false;
+#ifdef WITH_QVR
+        haveVRMode = true;
+#endif
+        if (!haveVRMode) {
+            QMessageBox::critical(this, tr("Error"), tr("VR mode unavailable - recompile Bino with QVR support!"));
+        } else if (configCustomBtn->isChecked() && configFileName.isEmpty()) {
+            QMessageBox::critical(this, tr("Error"), tr("No configuration selected."));
+        } else {
+            settings.setValue("VR/AutoConfig", configAutoBtn->isChecked());
+            settings.setValue("VR/Config", configFileName);
+            settings.setValue("VR/ShowControllers", showControllersBox->isChecked());
+
+            QString bino = QCoreApplication::applicationFilePath();
+            QString socketName = QString("bino_%1").arg(QCoreApplication::applicationPid());
+            QStringList arguments;
+            arguments << "--vr";
+            arguments << "--control-uds" << socketName;
+            arguments << "--vr-show-devices" << (showControllersBox->isChecked() ? "on" : "off");
+            if (configCustomBtn->isChecked())
+                arguments << "--qvr-config" << configFileName;
+            if (Bino::instance()->playlistMode()) {
+                if (_tempFile.fileName().isNull()) {
+                    if (!_tempFile.open()) {
+                        QMessageBox::critical(this, tr("Error"), tr("Cannot save playlist: %1").arg(tr("cannot create temporary file")));
+                        return;
+                    }
+                    _tempFile.close();
+                }
+                QString errStr;
+                if (!Playlist::instance()->save(_tempFile.fileName(), errStr)) {
+                    QMessageBox::critical(this, tr("Error"), tr("Cannot save playlist: %1").arg(errStr));
+                    return;
+                }
+                arguments << "--playlist" << _tempFile.fileName();
+            } else if (Bino::instance()->captureMode()) {
+                arguments << "--capture";
+                const QAudioInput* audioInput = Bino::instance()->captureModeAudioInput();
+                const QCamera* videoInput = Bino::instance()->captureModeVideoInput();
+                const QScreenCapture* screenInput = Bino::instance()->captureModeScreenInput();
+                const QWindowCapture* windowInput = Bino::instance()->captureModeWindowInput();
+                QGuiApplication::restoreOverrideCursor();
+                if (!audioInput) {
+                    arguments << "--audio-input=";
+                } else {
+                    QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+                    QList<QAudioDevice> audioInputDevices = QMediaDevices::audioInputs();
+                    QGuiApplication::restoreOverrideCursor();
+                    arguments << "--audio-input";
+                    for (qsizetype i = 0; i < audioInputDevices.length(); i++) {
+                        if (audioInputDevices[i].id() == audioInput->device().id()) {
+                            arguments << QString::number(i);
+                            break;
+                        }
+                    }
+                }
+                if (videoInput) {
+                    QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+                    QList<QCameraDevice> videoInputDevices = QMediaDevices::videoInputs();
+                    QGuiApplication::restoreOverrideCursor();
+                    arguments << "--video-input";
+                    for (qsizetype i = 0; i < videoInputDevices.length(); i++) {
+                        if (videoInputDevices[i].id() == videoInput->cameraDevice().id()) {
+                            arguments << QString::number(i);
+                            break;
+                        }
+                    }
+                } else if (screenInput) {
+                    QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+                    QList<QScreen*> screenInputDevices = QGuiApplication::screens();
+                    QGuiApplication::restoreOverrideCursor();
+                    arguments << "--screen-input";
+                    for (qsizetype i = 0; i < screenInputDevices.length(); i++) {
+                        if (screenInputDevices[i]->serialNumber() == screenInput->screen()->serialNumber()) {
+                            arguments << QString::number(i);
+                            break;
+                        }
+                    }
+                } else if (windowInput) {
+                    QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+                    QList<QCapturableWindow> windowInputDevices = QWindowCapture::capturableWindows();
+                    QGuiApplication::restoreOverrideCursor();
+                    arguments << "--window-input";
+                    for (qsizetype i = 0; i < windowInputDevices.length(); i++) {
+                        if (windowInputDevices[i] == windowInput->window()) {
+                            arguments << QString::number(i);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (Bino::instance()->playlistMode()) {
+                Bino::instance()->stop();
+            } else if (Bino::instance()->captureMode()) {
+                Bino::instance()->stopCaptureMode(); // otherwise the devices are blocked
+            }
+            QGuiApplication::processEvents();
+            QProcess *process = new QProcess;
+            process->setProcessChannelMode(QProcess::ForwardedChannels);
+            QProgressDialog *progressDialog = new QProgressDialog(tr("Running VR mode."), tr("Quit"), 0, 0, this);
+            progressDialog->setWindowTitle(tr("VR mode"));
+            progressDialog->setWindowModality(Qt::WindowModal);
+            QMetaObject::Connection errorOccurredConnection =
+                connect(process, &QProcess::errorOccurred, this,
+                        [this, process, progressDialog](QProcess::ProcessError) {
+                            progressDialog->close();
+                            progressDialog->deleteLater();
+                            QMessageBox::critical(this, tr("Error"), tr("Cannot launch VR mode"));
+                            process->deleteLater();
+                            });
+            connect(progressDialog, &QProgressDialog::canceled, process,
+                    [this, socketName, process, errorOccurredConnection]() {
+                        // this is also called when the process finishes on its own...
+                        disconnect(errorOccurredConnection); // otherwise it is triggered on process->kill()
+                        if (process->state() != QProcess::NotRunning) {
+                            bool processMustBeKilled = true;
+                            QLocalSocket socket;
+                            socket.connectToServer(socketName);
+                            if (socket.waitForConnected(1000)) {
+                                socket.write("quit\n");
+                                if (socket.waitForBytesWritten(1000)) {
+                                    socket.disconnectFromServer();
+                                    if (process->waitForFinished(3000)) {
+                                        processMustBeKilled = false;
+                                    }
+                                }
+                            }
+                            if (processMustBeKilled) {
+                                process->kill();
+                            }
+                        }
+                    });
+            connect(process, &QProcess::finished, this,
+                    [this, process, progressDialog](int exitCode, QProcess::ExitStatus exitStatus) {
+                        progressDialog->close();
+                        progressDialog->deleteLater();
+                        if (exitStatus == QProcess::CrashExit) {
+                            QMessageBox::critical(this, tr("Error"), tr("VR mode crashed"));
+                        } else if (exitCode != 0) {
+                            QMessageBox::critical(this, tr("Error"), tr("VR mode failed.\n"
+                                        "Please check your configuration and setup, "
+                                        "or try manual launching from the command line."));
+                        }
+                        process->deleteLater();
+                    });
+            process->start(bino, arguments);
+            progressDialog->show();
+        }
+    }
 }
 
 void Gui::helpAbout()

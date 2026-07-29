@@ -29,24 +29,26 @@ class OverlayUI : public Overlay
 {
 private:
     bool _currentSurround;
+    bool _currentStereo3D;
     qint64 _currentPosition;
     qint64 _currentDuration;
     bool _currentSeekable;
-    bool _currentPaused;
+    bool _currentPlaying;
     QPointF _currentPointer;
     bool _currentShowPointer;
     bool _lastSurround;
+    bool _lastStereo3D;
     qint64 _lastPosition;
     qint64 _lastDuration;
     bool _lastSeekable;
-    bool _lastPaused;
+    bool _lastPlaying;
     QPointF _lastPointer;
     bool _lastShowPointer;
 
     float _buttonSize;
     float _penWidth;
-    QRectF _boxes[10];
-    bool _boxIsActive[10];
+    QRectF _boxes[11];
+    bool _boxIsActive[11];
 
     void computeBoxes();
     QPointF pointerToImage(const QPointF& pointer);
@@ -60,9 +62,9 @@ public:
     OverlayUI();
     ~OverlayUI();
 
-    void updateParameters(bool surround,
+    void updateParameters(bool surround, bool stereo3D,
             qint64 position, qint64 duration, bool seekable,
-            bool paused, const QPointF& pointer, bool showPointer);
+            bool playing, const QPointF& pointer, bool showPointer);
 
     virtual bool redraw(int w, int h) override;
 

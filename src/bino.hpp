@@ -51,6 +51,7 @@ public:
         ScreenIntersected,      // global 2D intersected screen given by QVR
         ScreenGeometry          // explicit geometry stored in _screen
     };
+    static constexpr float surroundCubeScale = 2.0f;
 
 private:
     /* Data not directly relevant for rendering */
@@ -132,7 +133,6 @@ public:
      * starting either GUI or VR mode */
     void initializeOutput(const QAudioDevice& audioOutputDevice);
     void startPlaylistMode();
-    void stopPlaylistMode();
     void startCaptureModeCamera(
             bool withAudioInput,
             const QAudioDevice& audioInputDevice,
@@ -151,6 +151,10 @@ public:
     void stopCaptureMode();
     bool playlistMode() const;
     bool captureMode() const;
+    const QAudioInput* captureModeAudioInput() const;
+    const QCamera* captureModeVideoInput() const;
+    const QScreenCapture* captureModeScreenInput() const;
+    const QWindowCapture* captureModeWindowInput() const;
 
     /* Interaction functions, can be called while in GUI or VR mode */
     void quit();

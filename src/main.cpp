@@ -125,8 +125,14 @@ int main(int argc, char* argv[])
     parser.addOption({ "log-file",
             QCommandLineParser::tr("Set log file."),
             "file" });
-    parser.addOption({ "read-commands",
-            QCommandLineParser::tr("Read commands from a script file."), "script" });
+    parser.addOption({ "control-file",
+            QCommandLineParser::tr("Get control commands from a file."), "file" });
+    parser.addOption({ "control-fifo",
+            QCommandLineParser::tr("Get control commands from a named pipe (fifo)."), "name" });
+    parser.addOption({ "control-uds",
+            QCommandLineParser::tr("Get control commands from a Unix Domain Socket."), "name" });
+    parser.addOption({ "control-tcp",
+            QCommandLineParser::tr("Get control commands by listening on a TCP port."), "[ip|name]:port" });
     parser.addOption({ "stereo",
             QCommandLineParser::tr("Enable OpenGL quad-buffered stereo support.") });
     parser.addOption({ "opengles",
@@ -156,19 +162,19 @@ int main(int argc, char* argv[])
             QCommandLineParser::tr("List window inputs.") });
     parser.addOption({ "audio-output",
             QCommandLineParser::tr("Choose audio output via its index."),
-            "ao" });
+            "index" });
     parser.addOption({ "audio-input",
             QCommandLineParser::tr("Choose audio input via its index. Can be empty."),
-            "ai" });
+            "index" });
     parser.addOption({ "video-input",
             QCommandLineParser::tr("Choose video input via its index."),
-            "vi" });
+            "index" });
     parser.addOption({ "screen-input",
             QCommandLineParser::tr("Choose screen input via its index."),
-            "si" });
+            "index" });
     parser.addOption({ "window-input",
             QCommandLineParser::tr("Choose window input via its index."),
-            "si" });
+            "index" });
     parser.addOption({ "list-tracks",
             QCommandLineParser::tr("List all video, audio and subtitle tracks in the media.") });
     parser.addOption({ "preferred-audio",
@@ -210,7 +216,7 @@ int main(int argc, char* argv[])
             "amber-blue-dubois, amber-blue-full-color, amber-blue-half-color, amber-blue-monochrome, "
             "red-green-monochrome, red-blue-monochrome"),
             "mode" });
-    parser.addOption({ "surround",
+    parser.addOption({ { "s", "surround" },
             QCommandLineParser::tr("Set surround mode (%1).").arg("360, 180, off"),
             "mode" });
     parser.addOption({ "surround-vfov",
@@ -650,8 +656,22 @@ int main(int argc, char* argv[])
 
     // Initialize the command interpreter (but don't start it yet)
     CommandInterpreter cmdInterpreter;
-    if (parser.isSet("read-commands") && !cmdInterpreter.init(parser.value("read-commands"))) {
-        return 1;
+    if (parser.isSet("control-file")) {
+        if (!cmdInterpreter.init(CommandInterpreter::Type_File, parser.value("control-file"))) {
+            return 1;
+        }
+    } else if (parser.isSet("control-fifo")) {
+        if (!cmdInterpreter.init(CommandInterpreter::Type_FIFO, parser.value("control-fifo"))) {
+            return 1;
+        }
+    } else if (parser.isSet("control-uds")) {
+        if (!cmdInterpreter.init(CommandInterpreter::Type_LocalSocket, parser.value("control-uds"))) {
+            return 1;
+        }
+    } else if (parser.isSet("control-tcp")) {
+        if (!cmdInterpreter.init(CommandInterpreter::Type_TcpSocket, parser.value("control-tcp"))) {
+            return 1;
+        }
     }
 
     // Determine VR or GUI mode
